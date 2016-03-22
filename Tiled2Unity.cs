@@ -53,32 +53,32 @@ public class Tiled2Unity : EditorWindow
     {
         Rect wr = new Rect(0, 0, 500, 500);
         Tiled2Unity t2u = (Tiled2Unity)EditorWindow.GetWindowWithRect(typeof(Tiled2Unity), wr, true, "Tiled2Unity");
-        
+
     }
-     
+
     static string tmxPath = null;
     static string[] texturesPath;
     private MeshFilter meshFilter;
     private MeshCollider meshCollider;
     private MeshRenderer meshRenderer;
     private Mesh mesh;
-
+    private Material[] ms;
     void OnGUI()
     {
         if (GUILayout.Button("选择tmx文件路径"))
         {
-            tmxPath = EditorUtility.OpenFilePanel("选择tmx文件", "", "tmx"); 
-            if (tmxPath != null&&tmxPath !="")
+            tmxPath = EditorUtility.OpenFilePanel("选择tmx文件", "", "tmx");
+            if (tmxPath != null && tmxPath != "")
             {
                 LoadTmx(tmxPath);
-            } 
+            }
         }
         GUILayout.Label("tmx文件路径：" + tmxPath, EditorStyles.boldLabel);
     }
 
     void LoadTmx(string path)
     {
-        string s = File.ReadAllText(path, Encoding.UTF8); 
+        string s = File.ReadAllText(path, Encoding.UTF8);
         tmxXml = new XmlDocument();
         tmxXml.LoadXml(s);
         ResolveTmx(tmxXml);
@@ -169,7 +169,7 @@ public class Tiled2Unity : EditorWindow
                 XmlNode dataNode = subNode.SelectSingleNode("data");
                 layer.encoding = dataNode.Attributes["encoding"].Value;
 
-                layer.data = new int[layer.width * layer.height]; 
+                layer.data = new int[layer.width * layer.height];
                 string[] s = dataNode.InnerText.Split(',');
 
                 for (int j = 0; j < layer.data.Length; j++)
@@ -182,13 +182,15 @@ public class Tiled2Unity : EditorWindow
         Debug.Log(map.layers[0].data[0].ToString());
     }
 
-    void CreatMMM()  
+    void CreatMMM()
     {
         GameObject go = Selection.activeGameObject;
 
+        go.name = "Map";
+
         if (go.GetComponent<MeshFilter>() != null)
         {
-            DestroyImmediate(go.GetComponent<MeshFilter>()); 
+            DestroyImmediate(go.GetComponent<MeshFilter>());
         }
 
         meshFilter = go.AddComponent<MeshFilter>();
@@ -196,43 +198,118 @@ public class Tiled2Unity : EditorWindow
 
         if (go.GetComponent<MeshRenderer>() != null)
         {
-            DestroyImmediate(go.GetComponent<MeshRenderer>()); 
+            DestroyImmediate(go.GetComponent<MeshRenderer>());
         }
 
         meshRenderer = go.AddComponent<MeshRenderer>();
-        Material[] ms = new Material[map.tilesets.Count];
-        for(int i =0;i<map.tilesets.Count;i++)
+        ms = new Material[map.tilesets.Count];
+        for (int i = 0; i < map.tilesets.Count; i++)
         {
             Material m = new Material(Shader.Find("Unlit/Transparent Cutout"));
             m.name = map.tilesets[i].name;
-            m.mainTexture = (Texture2D)Resources.Load(map.tilesets[i].name,typeof(Texture2D));
-            ms[i] = m; 
+            m.mainTexture = (Texture2D)Resources.Load(map.tilesets[i].name, typeof(Texture2D));
+            ms[i] = m;
         }
-        meshRenderer.materials =ms;
+        meshRenderer.materials = ms;
 
         List<Vector3> vertices = new List<Vector3>();
         List<Vector2> uvs = new List<Vector2>();
 
-        Dictionary<int, List<int>> submeshesTriangles = new Dictionary<int, List<int>>();
-          
-        for(int i=0;i<map.layers.Count;i++)
+        Dictionary<int, List<int>> subMeshesTriangles = new Dictionary<int, List<int>>();
+        int triangles = -1;
+
+        for (int i = 0; i < map.layers.Count; i++)
         {
+            #region Layer
             Layer layer = map.layers[i];
 
-            for (int row = 0; row <layer.height; row++)
+            for (int row = 0; row < layer.height; row++)
             {
                 for (int col = 0; col < layer.width; col++)
                 {
-                    int gid = layer.data[row * col];
-                    if(gid>0)
+                    int gid = layer.data[row * layer.width + col];
+                    #region 有地图信息
+                    if (gid > 0)
                     {
+                        int tilesetId = 0;
+                        Tileset tileset = new Tileset(); ;
+                        for (int j = 0; j < map.tilesets.Count; j++)
+                        {
+                            if (gid >= map.tilesets[j].firstgid && gid <= map.tilesets[j].tilecount)
+                            {
+                                tileset = map.tilesets[j];
+                                tilesetId = j;
+                            }
+                        }
 
+                        if (!subMeshesTriangles.ContainsKey(tilesetId))
+                        {
+                            subMeshesTriangles.Add(tilesetId, new List<int>());
+                        }
+
+
+                        Vector3 pos0 = new Vector3(col, layer.height - row - 1, 0);
+                        Vector3 pos1 = pos0 + new Vector3(1, 1, 0);
+
+
+                        Vector3 p0 = new Vector3(pos0.x, pos0.y, 1);
+                        Vector3 p1 = new Vector3(pos1.x, pos0.y, 1);
+                        Vector3 p2 = new Vector3(pos0.x, pos1.y, 1);
+                        Vector3 p3 = new Vector3(pos1.x, pos1.y, 1);
+
+                        vertices.Add(p0);
+                        vertices.Add(p1);
+                        vertices.Add(p2);
+                        vertices.Add(p3);
+
+
+                        triangles += 4;
+
+                        subMeshesTriangles[tilesetId].Add(triangles - 3);
+                        subMeshesTriangles[tilesetId].Add(triangles - 1);
+                        subMeshesTriangles[tilesetId].Add(triangles - 2);
+                        subMeshesTriangles[tilesetId].Add(triangles - 2);
+                        subMeshesTriangles[tilesetId].Add(triangles - 1);
+                        subMeshesTriangles[tilesetId].Add(triangles);
                     }
+                    #endregion
+                }
+            }
+            #endregion
+        }
+
+        mesh.vertices = vertices.ToArray();
+        //mesh.uv = uvs.ToArray();
+
+        if (map.tilesets.Count == 1)
+        {
+            mesh.triangles = subMeshesTriangles[0].ToArray();
+        }
+        else
+        {
+            mesh.subMeshCount = map.tilesets.Count;
+
+            for (int tilesetId = 0; tilesetId < map.tilesets.Count; tilesetId++)
+            {
+                if (subMeshesTriangles.ContainsKey(tilesetId))
+                {
+                    mesh.SetTriangles(subMeshesTriangles[tilesetId].ToArray(), tilesetId);
+                }
+                else
+                {
+                    mesh.SetTriangles(new int[0], tilesetId);
                 }
             }
         }
 
-    } 
+        meshFilter.mesh = mesh;
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        mesh.Optimize();
+        meshRenderer.materials = ms;
+
+    }
 
     int ToInt(string s)
     {

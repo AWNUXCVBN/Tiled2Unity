@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System;
 public class Tiled2Unity : EditorWindow
 {
+    private float offset = 0.0065f;
     private XmlDocument tmxXml;
     Map map;
     private struct Layer
@@ -23,14 +24,26 @@ public class Tiled2Unity : EditorWindow
     {
         public int firstgid;
         public string name;
+        /// <summary>
+        /// 地图分块的宽
+        /// </summary>
         public int tilewidth;
+        /// <summary>
+        /// 地图分块的高
+        /// </summary>
         public int tileheight;
         public int spacing;
         public int margin;
         public int tilecount;
         public int columns;
         public string source;
+        /// <summary>
+        /// 大图的宽
+        /// </summary>
         public float width;
+        /// <summary>
+        /// 大图的高
+        /// </summary>
         public float height;
     }
 
@@ -55,7 +68,6 @@ public class Tiled2Unity : EditorWindow
         Tiled2Unity t2u = (Tiled2Unity)EditorWindow.GetWindowWithRect(typeof(Tiled2Unity), wr, true, "Tiled2Unity");
 
     }
-
     static string tmxPath = null;
     static string[] texturesPath;
     private MeshFilter meshFilter;
@@ -108,8 +120,6 @@ public class Tiled2Unity : EditorWindow
             map.tilesets = new List<Tileset>();
             map.layers = new List<Layer>();
 
-            Debug.Log(tilesetsNodes.Count);
-
             for (int i = 0; i < tilesetsNodes.Count; i++)
             {
                 subNode = tilesetsNodes[i];
@@ -147,6 +157,15 @@ public class Tiled2Unity : EditorWindow
                     tileset.tilecount = 0;
                 }
 
+                if (subNode.Attributes["columns"] != null)
+                {
+                    tileset.columns = ToInt(subNode.Attributes["columns"].Value);
+                }
+                else
+                {
+                    tileset.columns = 0;
+                }
+
                 subSubNode = subNode.SelectSingleNode("image");
                 tileset.source = subSubNode.Attributes["source"].Value;
                 tileset.width = ToInt(subSubNode.Attributes["width"].Value);
@@ -179,7 +198,6 @@ public class Tiled2Unity : EditorWindow
                 map.layers.Add(layer);
             }
         }
-        Debug.Log(map.layers[0].data[0].ToString());
     }
 
     void CreatMMM()
@@ -188,6 +206,7 @@ public class Tiled2Unity : EditorWindow
 
         go.name = "Map";
 
+        go.transform.position = Vector3.zero;
         if (go.GetComponent<MeshFilter>() != null)
         {
             DestroyImmediate(go.GetComponent<MeshFilter>());
@@ -215,9 +234,8 @@ public class Tiled2Unity : EditorWindow
         List<Vector3> vertices = new List<Vector3>();
         List<Vector2> uvs = new List<Vector2>();
 
-        Dictionary<int, List<int>> subMeshesTriangles = new Dictionary<int, List<int>>();
-        int triangles = -1;
-
+        Dictionary<int, List<int>> mesheTriangles = new Dictionary<int, List<int>>();
+        int triangles = 0;
         for (int i = 0; i < map.layers.Count; i++)
         {
             #region Layer
@@ -242,15 +260,13 @@ public class Tiled2Unity : EditorWindow
                             }
                         }
 
-                        if (!subMeshesTriangles.ContainsKey(tilesetId))
+                        if (!mesheTriangles.ContainsKey(tilesetId))
                         {
-                            subMeshesTriangles.Add(tilesetId, new List<int>());
+                            mesheTriangles.Add(tilesetId, new List<int>());
                         }
-
 
                         Vector3 pos0 = new Vector3(col, layer.height - row - 1, 0);
                         Vector3 pos1 = pos0 + new Vector3(1, 1, 0);
-
 
                         Vector3 p0 = new Vector3(pos0.x, pos0.y, 1);
                         Vector3 p1 = new Vector3(pos1.x, pos0.y, 1);
@@ -262,15 +278,42 @@ public class Tiled2Unity : EditorWindow
                         vertices.Add(p2);
                         vertices.Add(p3);
 
-
                         triangles += 4;
 
-                        subMeshesTriangles[tilesetId].Add(triangles - 3);
-                        subMeshesTriangles[tilesetId].Add(triangles - 1);
-                        subMeshesTriangles[tilesetId].Add(triangles - 2);
-                        subMeshesTriangles[tilesetId].Add(triangles - 2);
-                        subMeshesTriangles[tilesetId].Add(triangles - 1);
-                        subMeshesTriangles[tilesetId].Add(triangles);
+                        mesheTriangles[tilesetId].Add(triangles - 4);
+                        mesheTriangles[tilesetId].Add(triangles - 2);
+                        mesheTriangles[tilesetId].Add(triangles - 3);
+                        mesheTriangles[tilesetId].Add(triangles - 3);
+                        mesheTriangles[tilesetId].Add(triangles - 2);
+                        mesheTriangles[tilesetId].Add(triangles - 1);
+
+                        int tilesetFirstGid = gid - tileset.firstgid + 1;
+                        int tilesRow = 1;
+
+                        for (; tilesetFirstGid > (tileset.columns); tilesetFirstGid -= (tileset.columns))
+                        {
+                            tilesRow++;
+                        }
+
+                        float tileX = ((tilesetFirstGid - 1) * (tileset.tilewidth + tileset.spacing)) + tileset.margin;
+                        float tileYBottomLeft = (((tileset.tileheight + tileset.spacing) * tilesRow) - tileset.spacing) + tileset.margin;
+
+                        float pixelMinX = tileset.width;
+                        float pixelMinY = tileset.height;
+
+                        if (tileX != 0f) pixelMinX = tileX / pixelMinX;
+                        if (tileYBottomLeft != 0f) pixelMinY = tileYBottomLeft / pixelMinY;
+
+                        Vector2 pixelMin = new Vector2(pixelMinX, 1.0f - pixelMinY);
+                        Vector2 pixelDims = new Vector2((tileset.tilewidth / tileset.width), (tileset.tileheight / tileset.height));
+
+                        Vector2 min = pixelMin;
+
+                        uvs.Add(min + new Vector2(pixelDims.x * 0.0f + offset, pixelDims.y * 0.0f + offset));
+                        uvs.Add(min + new Vector2(pixelDims.x * 1.0f - offset, pixelDims.y * 0.0f + offset));
+                        uvs.Add(min + new Vector2(pixelDims.x * 0.0f + offset, pixelDims.y * 1.0f - offset));
+                        uvs.Add(min + new Vector2(pixelDims.x * 1.0f - offset, pixelDims.y * 1.0f - offset));
+
                     }
                     #endregion
                 }
@@ -279,11 +322,11 @@ public class Tiled2Unity : EditorWindow
         }
 
         mesh.vertices = vertices.ToArray();
-        //mesh.uv = uvs.ToArray();
+        mesh.uv = uvs.ToArray();
 
         if (map.tilesets.Count == 1)
         {
-            mesh.triangles = subMeshesTriangles[0].ToArray();
+            mesh.triangles = mesheTriangles[0].ToArray();
         }
         else
         {
@@ -291,9 +334,9 @@ public class Tiled2Unity : EditorWindow
 
             for (int tilesetId = 0; tilesetId < map.tilesets.Count; tilesetId++)
             {
-                if (subMeshesTriangles.ContainsKey(tilesetId))
+                if (mesheTriangles.ContainsKey(tilesetId))
                 {
-                    mesh.SetTriangles(subMeshesTriangles[tilesetId].ToArray(), tilesetId);
+                    mesh.SetTriangles(mesheTriangles[tilesetId].ToArray(), tilesetId);
                 }
                 else
                 {
